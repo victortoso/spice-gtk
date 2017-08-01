@@ -142,7 +142,7 @@ spice_vmc_input_stream_co_data(SpiceVmcInputStream *self,
 
         g_return_if_fail(self->task != NULL);
 
-        gsize min = MIN(self->count, size);
+        gsize min = MIN(self->count - self->pos, size);
         memcpy(self->buffer, data, min);
 
         size -= min;
