@@ -514,6 +514,8 @@ static void port_event(SpiceWebdavChannel *self, gint event)
         g_cancellable_cancel(c->cancellable);
         c->demuxing = FALSE;
         g_hash_table_remove_all(c->clients);
+        g_clear_pointer(&c->queue, output_queue_free);
+        g_clear_object(&c->stream);
     }
 }
 
@@ -563,7 +565,18 @@ static void spice_webdav_channel_dispose(GObject *object)
 
 static void spice_webdav_channel_up(SpiceChannel *channel)
 {
+    SpiceWebdavChannelPrivate *c = SPICE_WEBDAV_CHANNEL(channel)->priv;
+
     CHANNEL_DEBUG(channel, "up");
+
+    if (c->stream == NULL) {
+        GOutputStream *ostream;
+
+        /* In case the channel has been reset */
+        c->stream = spice_vmc_stream_new(SPICE_CHANNEL(channel));
+        ostream = g_io_stream_get_output_stream(G_IO_STREAM(c->stream));
+        c->queue = output_queue_new(ostream);
+    }
 }
 
 static void spice_webdav_channel_class_init(SpiceWebdavChannelClass *klass)

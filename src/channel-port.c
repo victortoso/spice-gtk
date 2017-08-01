@@ -22,6 +22,8 @@
 #include "spice-channel-priv.h"
 #include "spice-marshal.h"
 
+static void port_set_opened(SpicePortChannel *self, gboolean opened);
+
 /**
  * SECTION:channel-port
  * @short_description: private communication channel
@@ -116,10 +118,11 @@ static void spice_port_channel_finalize(GObject *object)
 
 static void spice_port_channel_reset(SpiceChannel *channel, gboolean migrating)
 {
-    SpicePortChannelPrivate *c = SPICE_PORT_CHANNEL(channel)->priv;
+    SpicePortChannel *self = SPICE_PORT_CHANNEL(channel);
+    SpicePortChannelPrivate *c = self->priv;
 
     g_clear_pointer(&c->name, g_free);
-    c->opened = FALSE;
+    port_set_opened(self, false);
 
     SPICE_CHANNEL_CLASS(spice_port_channel_parent_class)->channel_reset(channel, migrating);
 }
