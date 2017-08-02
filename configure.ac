@@ -271,7 +271,7 @@ AC_ARG_ENABLE([gstvideo],
   [enable_gstvideo="auto"])
 AS_IF([test "x$enable_gstvideo" != "xno"],
       [SPICE_CHECK_GSTREAMER(GSTVIDEO, 1.0,
-         [gstreamer-1.0 gstreamer-base-1.0 gstreamer-app-1.0 gstreamer-video-1.0],
+         [gstreamer-1.0 > 1.9 gstreamer-base-1.0 gstreamer-app-1.0 gstreamer-video-1.0],
          [missing_gstreamer_elements=""
           SPICE_CHECK_GSTREAMER_ELEMENTS($GST_INSPECT_1_0, [gst-plugins-base 1.0], [appsrc videoconvert appsink])
           SPICE_CHECK_GSTREAMER_ELEMENTS($GST_INSPECT_1_0, [gst-plugins-good 1.0], [jpegdec vp8dec vp9dec])

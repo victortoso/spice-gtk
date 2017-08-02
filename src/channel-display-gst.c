@@ -299,9 +299,7 @@ static gboolean handle_pipeline_message(GstBus *bus, GstMessage *msg, gpointer v
                                           gst_opts[decoder->base.codec_type].name);
         GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(decoder->pipeline),
                                   GST_DEBUG_GRAPH_SHOW_ALL
-#if GST_CHECK_VERSION(1,5,1)
                                     | GST_DEBUG_GRAPH_SHOW_FULL_PARAMS
-#endif
                                     | GST_DEBUG_GRAPH_SHOW_STATES,
                                     filename);
         g_free(filename);
@@ -314,7 +312,6 @@ static gboolean handle_pipeline_message(GstBus *bus, GstMessage *msg, gpointer v
     return TRUE;
 }
 
-#if GST_CHECK_VERSION(1,9,0)
 static void app_source_setup(GstElement *pipeline G_GNUC_UNUSED,
                              GstElement *source,
                              SpiceGstDecoder *decoder)
@@ -339,13 +336,11 @@ static void app_source_setup(GstElement *pipeline G_GNUC_UNUSED,
     gst_caps_unref(caps);
     decoder->appsrc = GST_APP_SRC(gst_object_ref(source));
 }
-#endif
 
 static gboolean create_pipeline(SpiceGstDecoder *decoder)
 {
     GstAppSinkCallbacks appsink_cbs = { NULL };
     GstBus *bus;
-#if GST_CHECK_VERSION(1,9,0)
     GstElement *playbin, *sink;
     SpiceGstPlayFlags flags;
     GstCaps *caps;
@@ -386,35 +381,6 @@ static gboolean create_pipeline(SpiceGstDecoder *decoder)
     g_warn_if_fail(decoder->appsrc == NULL);
     decoder->appsink = GST_APP_SINK(sink);
     decoder->pipeline = playbin;
-#else
-    gchar *desc;
-    GError *err = NULL;
-
-    /* - We schedule the frame display ourselves so set sync=false on appsink
-     *   so the pipeline decodes them as fast as possible. This will also
-     *   minimize the risk of frames getting lost when we rebuild the
-     *   pipeline.
-     * - Set max-bytes=0 on appsrc so it does not drop frames that may be
-     *   needed by those that follow.
-     */
-    desc = g_strdup_printf("appsrc name=src is-live=true format=time max-bytes=0 block=true "
-                           "caps=%s ! %s ! videoconvert ! appsink name=sink "
-                           "caps=video/x-raw,format=BGRx sync=false drop=false",
-                           gst_opts[decoder->base.codec_type].dec_caps,
-                           gst_opts[decoder->base.codec_type].dec_name);
-    SPICE_DEBUG("GStreamer pipeline: %s", desc);
-
-    decoder->pipeline = gst_parse_launch_full(desc, NULL, GST_PARSE_FLAG_FATAL_ERRORS, &err);
-    g_free(desc);
-    if (!decoder->pipeline) {
-        spice_warning("GStreamer error: %s", err->message);
-        g_clear_error(&err);
-        return FALSE;
-    }
-
-    decoder->appsrc = GST_APP_SRC(gst_bin_get_by_name(GST_BIN(decoder->pipeline), "src"));
-    decoder->appsink = GST_APP_SINK(gst_bin_get_by_name(GST_BIN(decoder->pipeline), "sink"));
-#endif
 
     appsink_cbs.new_sample = new_sample;
     gst_app_sink_set_callbacks(decoder->appsink, &appsink_cbs, decoder, NULL);
@@ -542,13 +508,11 @@ static gboolean spice_gst_decoder_queue_frame(VideoDecoder *video_decoder,
         return FALSE;
     }
 
-#if GST_CHECK_VERSION(1,9,0)
     if (decoder->appsrc == NULL) {
         spice_warning("Error: Playbin has not yet initialized the Appsrc element");
         stream_dropped_frame_on_playback(decoder->base.stream);
         return TRUE;
     }
-#endif
 
     /* ref() the frame data for the buffer */
     frame->ref_data(frame->data_opaque);
