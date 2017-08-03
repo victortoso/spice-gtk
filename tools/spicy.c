@@ -123,6 +123,7 @@ static void usb_connect_failed(GObject               *object,
                                GError                *error,
                                gpointer               data);
 static gboolean is_gtk_session_property(const gchar *property);
+static gboolean is_session_property(const gchar *property);
 static void del_window(spice_connection *conn, SpiceWindow *win);
 
 /* options */
@@ -431,6 +432,8 @@ static void menu_cb_bool_prop(GtkToggleAction *action, gpointer data)
 
     if (is_gtk_session_property(name)) {
         object = win->conn->gtk_session;
+    } else if (is_session_property(name)) {
+        object = win->conn->session;
     } else {
         object = win->spice;
     }
@@ -447,7 +450,7 @@ static void menu_cb_conn_bool_prop_changed(GObject    *gobject,
     gboolean state;
 
     toggle = gtk_action_group_get_action(win->ag, property);
-    g_object_get(win->conn->gtk_session, property, &state, NULL);
+    g_object_get(gobject, property, &state, NULL);
     gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(toggle), state);
 }
 
@@ -657,6 +660,8 @@ static void restore_configuration(SpiceWindow *win)
 
         if (is_gtk_session_property(keys[i])) {
             object = win->conn->gtk_session;
+        } else if (is_session_property(keys[i])) {
+            object = win->conn->session;
         } else {
             object = win->spice;
         }
@@ -806,6 +811,10 @@ static const char *spice_gtk_session_properties[] = {
     "sync-modifiers",
 };
 
+static const char *spice_session_properties[] = {
+    "video-sync-on-audio-latency",
+};
+
 static const GtkToggleActionEntry tentries[] = {
     {
         .name        = "grab-keyboard",
@@ -830,6 +839,10 @@ static const GtkToggleActionEntry tentries[] = {
     },{
         .name        = "sync-modifiers",
         .label       = "Sync modifiers",
+        .callback    = G_CALLBACK(menu_cb_bool_prop),
+    },{
+        .name        = "video-sync-on-audio-latency",
+        .label       = "Sync video on audio latency",
         .callback    = G_CALLBACK(menu_cb_bool_prop),
     },{
         .name        = "auto-clipboard",
@@ -939,6 +952,7 @@ static char ui_xml[] =
 "      <menuitem action='scaling'/>\n"
 "      <menuitem action='disable-inputs'/>\n"
 "      <menuitem action='sync-modifiers'/>\n"
+"      <menuitem action='video-sync-on-audio-latency'/>\n"
 "      <menuitem action='auto-clipboard'/>\n"
 "      <menuitem action='auto-usbredir'/>\n"
 "      <menu action='CompressionMenu'>\n"
@@ -982,6 +996,18 @@ static gboolean is_gtk_session_property(const gchar *property)
 
     for (i = 0; i < G_N_ELEMENTS(spice_gtk_session_properties); i++) {
         if (!strcmp(spice_gtk_session_properties[i], property)) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static gboolean is_session_property(const gchar *property)
+{
+    int i;
+
+    for (i = 0; i < G_N_ELEMENTS(spice_session_properties); i++) {
+        if (!strcmp(spice_session_properties[i], property)) {
             return TRUE;
         }
     }
@@ -1183,6 +1209,21 @@ static SpiceWindow *create_spice_window(spice_connection *conn, SpiceChannel *ch
         snprintf(notify, sizeof(notify), "notify::%s",
                  spice_gtk_session_properties[i]);
         spice_g_signal_connect_object(win->conn->gtk_session, notify,
+                                      G_CALLBACK(menu_cb_conn_bool_prop_changed),
+                                      win, 0);
+    }
+
+    for (i = 0; i < G_N_ELEMENTS(spice_session_properties); i++) {
+        char notify[64];
+
+        toggle = gtk_action_group_get_action(win->ag, spice_session_properties[i]);
+        g_object_get(win->conn->session, spice_session_properties[i],
+                     &state, NULL);
+        gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(toggle), state);
+
+        snprintf(notify, sizeof(notify), "notify::%s",
+                 spice_session_properties[i]);
+        spice_g_signal_connect_object(win->conn->session, notify,
                                       G_CALLBACK(menu_cb_conn_bool_prop_changed),
                                       win, 0);
     }
