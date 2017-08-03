@@ -471,7 +471,12 @@ void spice_playback_channel_set_delay(SpicePlaybackChannel *channel, guint32 del
 
     session = spice_channel_get_session(SPICE_CHANNEL(channel));
     if (session) {
-        spice_session_set_mm_time(session, c->last_time - delay_ms);
+        if (spice_session_adjust_mm_time_on_audio_latency(session)) {
+            /* FIXME: Instead of setting Session's mm-time, we should send this
+             * latency information back to spice-server which is the only who
+             * handles the mm-time for audio/video synchronization */
+            spice_session_set_mm_time(session, c->last_time - delay_ms);
+        }
     } else {
         CHANNEL_DEBUG(channel, "channel detached from session, mm time skipped");
     }

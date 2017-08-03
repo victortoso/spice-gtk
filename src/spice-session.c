@@ -64,6 +64,7 @@ struct _SpiceSessionPrivate {
 
     /* whether to enable audio */
     gboolean          audio;
+    gboolean          adjust_mm_time_on_audio;
 
     /* whether to enable smartcard event forwarding to the server */
     gboolean          smartcard;
@@ -204,6 +205,7 @@ enum {
     PROP_USERNAME,
     PROP_UNIX_PATH,
     PROP_PREF_COMPRESSION,
+    PROP_VIDEO_SYNC_ON_AUDIO_LATENCY,
 };
 
 /* signals */
@@ -696,6 +698,9 @@ static void spice_session_get_property(GObject    *gobject,
     case PROP_PREF_COMPRESSION:
         g_value_set_enum(value, s->preferred_compression);
         break;
+    case PROP_VIDEO_SYNC_ON_AUDIO_LATENCY:
+        g_value_set_boolean(value, s->adjust_mm_time_on_audio);
+        break;
     default:
 	G_OBJECT_WARN_INVALID_PROPERTY_ID(gobject, prop_id, pspec);
 	break;
@@ -834,6 +839,9 @@ static void spice_session_set_property(GObject      *gobject,
         break;
     case PROP_PREF_COMPRESSION:
         s->preferred_compression = g_value_get_enum(value);
+        break;
+    case PROP_VIDEO_SYNC_ON_AUDIO_LATENCY:
+        s->adjust_mm_time_on_audio = g_value_get_boolean(value);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(gobject, prop_id, pspec);
@@ -1461,6 +1469,24 @@ static void spice_session_class_init(SpiceSessionClass *klass)
                            SPICE_IMAGE_COMPRESSION_INVALID,
                            G_PARAM_READWRITE |
                            G_PARAM_STATIC_STRINGS));
+    /**
+     * SpiceSession:video-sync-on-audio-latency
+     *
+     * Whether to adjust multi media time based on latecy reported by audio
+     * backend.
+     *
+     * Since: 0.35
+     **/
+    g_object_class_install_property
+        (gobject_class, PROP_VIDEO_SYNC_ON_AUDIO_LATENCY,
+         g_param_spec_boolean("video-sync-on-audio-latency",
+                              "Video sync on audio latency",
+                              "Video sync on audio latency",
+                              TRUE,
+                              G_PARAM_READWRITE |
+                              G_PARAM_CONSTRUCT |
+                              G_PARAM_STATIC_STRINGS));
+
 
     g_type_class_add_private(klass, sizeof(SpiceSessionPrivate));
 }
@@ -2804,4 +2830,11 @@ gboolean spice_session_set_migration_session(SpiceSession *session, SpiceSession
     session->priv->migration = mig_session;
 
     return TRUE;
+}
+
+G_GNUC_INTERNAL
+gboolean spice_session_adjust_mm_time_on_audio_latency(SpiceSession *session)
+{
+    g_return_val_if_fail(SPICE_IS_SESSION(session), FALSE);
+    return session->priv->adjust_mm_time_on_audio;
 }
