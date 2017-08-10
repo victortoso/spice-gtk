@@ -100,17 +100,6 @@ gboolean spice_main_file_copy_finish(SpiceMainChannel *channel,
 
 void spice_main_request_mouse_mode(SpiceMainChannel *channel, int mode);
 
-#ifndef SPICE_DISABLE_DEPRECATED
-G_DEPRECATED_FOR(spice_main_clipboard_selection_grab)
-void spice_main_clipboard_grab(SpiceMainChannel *channel, guint32 *types, int ntypes);
-G_DEPRECATED_FOR(spice_main_clipboard_selection_release)
-void spice_main_clipboard_release(SpiceMainChannel *channel);
-G_DEPRECATED_FOR(spice_main_clipboard_selection_notify)
-void spice_main_clipboard_notify(SpiceMainChannel *channel, guint32 type, const guchar *data, size_t size);
-G_DEPRECATED_FOR(spice_main_clipboard_selection_request)
-void spice_main_clipboard_request(SpiceMainChannel *channel, guint32 type);
-#endif
-
 G_END_DECLS
 
 #endif /* __SPICE_CLIENT_MAIN_CHANNEL_H__ */
