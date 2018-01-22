@@ -100,6 +100,7 @@ void spice_session_set_main_channel(SpiceSession *session, SpiceChannel *channel
 gboolean spice_session_set_migration_session(SpiceSession *session, SpiceSession *mig_session);
 SpiceAudio *spice_audio_get(SpiceSession *session, GMainContext *context);
 const gchar* spice_audio_data_mode_to_string(gint mode);
+const GArray *spice_session_get_hw_accel_video_codecs(SpiceSession *session);
 G_END_DECLS
 
 #endif /* __SPICE_CLIENT_SESSION_PRIV_H__ */

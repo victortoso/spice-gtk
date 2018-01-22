@@ -23,6 +23,19 @@
 #include <gio/gunixsocketaddress.h>
 #endif
 #include "common/ring.h"
+#ifdef HAVE_LIBVA
+#include <gdk/gdk.h>
+#include <va/va.h>
+#include <va/va_str.h>
+#ifdef GDK_WINDOWING_WAYLAND
+#include <gdk/gdkwayland.h>
+#include <va/va_wayland.h>
+#endif
+#ifdef GDK_WINDOWING_X11
+#include <gdk/gdkx.h>
+#include <va/va_x11.h>
+#endif
+#endif
 
 #include "spice-client.h"
 #include "spice-common.h"
@@ -33,6 +46,7 @@
 #include "spice-uri-priv.h"
 #include "channel-playback-priv.h"
 #include "spice-audio-priv.h"
+#include "channel-display-priv.h"
 
 struct channel {
     SpiceChannel      *channel;
@@ -116,6 +130,9 @@ struct _SpiceSessionPrivate {
     guint8            uuid[16];
     gchar             *name;
     SpiceImageCompression preferred_compression;
+ 
+    /* Array of SpiceVideoCodecType with hw accelerated video decoding capability */
+    GArray            *video_codecs;
 
     /* associated objects */
     SpiceAudio        *audio_manager;
@@ -248,6 +265,7 @@ spice_image_compress_get_type (void)
 static guint signals[SPICE_SESSION_LAST_SIGNAL];
 
 static void spice_session_channel_destroy(SpiceSession *session, SpiceChannel *channel);
+static void spice_session_check_video_hw_caps(SpiceSession *session);
 
 static void update_proxy(SpiceSession *self, const gchar *str)
 {
@@ -299,6 +317,9 @@ static void spice_session_init(SpiceSession *session)
         SPICE_DEBUG("Could not initialize SpiceUsbDeviceManager - %s", err->message);
         g_clear_error(&err);
     }
+
+    session->priv->video_codecs = NULL;
+    spice_session_check_video_hw_caps(session);
 }
 
 static void
@@ -2800,4 +2821,122 @@ gboolean spice_session_set_migration_session(SpiceSession *session, SpiceSession
     session->priv->migration = mig_session;
 
     return TRUE;
+}
+
+G_GNUC_INTERNAL
+const GArray *spice_session_get_hw_accel_video_codecs(SpiceSession *session)
+{
+    g_return_val_if_fail(SPICE_IS_SESSION(session), NULL);
+    return session->priv->video_codecs;
+}
+
+static void
+spice_session_check_video_hw_caps(SpiceSession *session)
+{
+#ifdef HAVE_LIBVA
+    VADisplay va_dpy = NULL;
+    VAStatus va_status;
+    GdkDisplay *display;
+    int major_version, minor_version;
+    GArray *codecs;
+    const gchar *last_profile = NULL;
+    VAProfile *profile_list = NULL;
+    int num_profiles, max_num_profiles, i;
+    int num_entrypoint;
+
+    display = gdk_display_get_default();
+    spice_debug("Display: %s", gdk_display_get_name(display));
+
+#ifdef GDK_WINDOWING_X11
+    if (GDK_IS_X11_DISPLAY(display))
+        va_dpy = vaGetDisplay(gdk_x11_display_get_xdisplay(display));
+#endif
+#ifdef GDK_WINDOWING_WAYLAND
+    if (GDK_IS_WAYLAND_DISPLAY(display))
+        va_dpy = vaGetDisplayWl(gdk_wayland_display_get_wl_display(display));
+#endif
+
+    if (va_dpy == NULL) {
+        spice_warning("Failed to get VADisplay, unable to detect hardware capabilities");
+        return;
+    }
+
+    va_status = vaInitialize(va_dpy, &major_version, &minor_version);
+    if (va_status != VA_STATUS_SUCCESS) {
+        spice_warning("Failed to initialize libva");
+        return;
+    }
+
+    max_num_profiles = vaMaxNumProfiles(va_dpy);
+    profile_list = g_new(VAProfile, max_num_profiles);
+
+    if (!profile_list) {
+        spice_warning("libva: failed to allocate memory for profile list");
+        vaTerminate(va_dpy);
+        return;
+    }
+
+    va_status = vaQueryConfigProfiles(va_dpy, profile_list, &num_profiles);
+    if (va_status != VA_STATUS_SUCCESS) {
+        spice_warning("libva: failed to query profiles");
+        g_free(profile_list);
+        vaTerminate(va_dpy);
+        return;
+    }
+
+    codecs = g_array_new(FALSE, FALSE, sizeof(gint));
+    for (i = 0; i < num_profiles; i++) {
+        int j;
+        VAEntrypoint entrypoints[50];
+        VAProfile profile = profile_list[i];
+        const char *profile_str = vaProfileStr(profile);
+
+        /* Spice protocol does not support different profiles for a given codec
+         * at the moment, which means that we can jump to the next codec. */
+        if (last_profile != NULL &&
+                g_ascii_strncasecmp(profile_str + strlen("VAProfile"),
+                                    last_profile,
+                                    strlen(last_profile)) == 0)
+            continue;
+
+        va_status = vaQueryConfigEntrypoints(va_dpy, profile, entrypoints, &num_entrypoint);
+        if (va_status == VA_STATUS_ERROR_UNSUPPORTED_PROFILE)
+            continue;
+        else if (va_status != VA_STATUS_SUCCESS) {
+            spice_warning("Error on vaQueryConfigEntrypoints()");
+            break;
+        }
+
+        /* Find if current profile has decoding support */
+        for (j = 0; j < num_entrypoint; j++) {
+            int k;
+
+            if (entrypoints[j] != VAEntrypointVLD)
+                continue;
+
+            /* Found decoding entrypoing, check if it is supported by Spice protocol */
+            for (k = 1; k < SPICE_VIDEO_CODEC_TYPE_ENUM_END; k++) {
+                if (g_ascii_strncasecmp(profile_str + strlen("VAProfile"),
+                                        gst_opts[k].name,
+                                        strlen(gst_opts[k].name)) == 0) {
+                    last_profile = gst_opts[k].name;
+                    g_array_append_val(codecs, k);
+                    spice_debug("Support to decode %s found with profile %s",
+                                gst_opts[k].name, profile_str);
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    if (codecs->len > 0) {
+        g_clear_pointer(&session->priv->video_codecs, g_array_unref);
+        session->priv->video_codecs = g_array_ref(codecs);
+    }
+
+    g_array_unref(codecs);
+    g_free(profile_list);
+    vaTerminate(va_dpy);
+#endif
 }

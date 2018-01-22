@@ -75,6 +75,9 @@ SPICE_COMMON_CPPFLAGS =						\
 	$(PIXMAN_CFLAGS)					\
 	$(PULSE_CFLAGS)						\
 	$(GTK_CFLAGS)						\
+	$(GDK_CFLAGS)						\
+	$(GDK_X11_CFLAGS)					\
+	$(GDK_WAYLAND_CFLAGS)					\
 	$(CAIRO_CFLAGS)						\
 	$(GLIB2_CFLAGS)						\
 	$(GIO_CFLAGS)						\
@@ -88,6 +91,9 @@ SPICE_COMMON_CPPFLAGS =						\
 	$(GUDEV_CFLAGS)						\
 	$(SOUP_CFLAGS)						\
 	$(PHODAV_CFLAGS)					\
+	$(LIBVA_CFLAGS)						\
+	$(LIBVA_X11_CFLAGS)					\
+	$(LIBVA_WAYLAND_CFLAGS)					\
 	$(X11_CFLAGS)					\
 	$(LZ4_CFLAGS)					\
 	$(NULL)
@@ -195,6 +201,12 @@ libspice_client_glib_2_0_la_LIBADD =					\
 	$(USBREDIR_LIBS)						\
 	$(GUDEV_LIBS)							\
 	$(PHODAV_LIBS)							\
+	$(GDK_LIBS)							\
+	$(GDK_X11_LIBS)							\
+	$(GDK_WAYLAND_LIBS)						\
+	$(LIBVA_LIBS)							\
+	$(LIBVA_X11_LIBS)						\
+	$(LIBVA_WAYLAND_LIBS)						\
 	$(NULL)
 
 if WITH_POLKIT

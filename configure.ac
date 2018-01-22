@@ -321,6 +321,25 @@ AC_SUBST(Z_LIBS)
 SPICE_CHECK_SMARTCARD
 AM_CONDITIONAL([WITH_SMARTCARD], [test "x$have_smartcard" = "xyes"])
 
+AC_ARG_ENABLE([libva],
+  AS_HELP_STRING([--enable-libva=@<:@auto/yes/no@:>@], [Enable auto detection of hardware accelerate video decoding support @<:@default=auto@:>@]),
+  [],
+  [enable_libva="auto"])
+AS_IF([test "x$enable_libva" != "xno"],
+      [PKG_CHECK_MODULES(LIBVA, [libva >= 1.0.0],
+         [AC_DEFINE([HAVE_LIBVA], 1, [Have libva support?])
+          enable_libva="yes"],
+         [AS_IF([test "x$enable_libva" = "xyes"],
+                AC_MSG_ERROR([Auto detection of hardware accelerated video decoding explicitly requested, but some required packages are not available]))
+          enable_libva="no"
+      ])
+    PKG_CHECK_MODULES([LIBVA_X11], [libva-x11 >= 1.0.0])
+    PKG_CHECK_MODULES([LIBVA_WAYLAND], [libva-wayland >= 1.0.0])
+    PKG_CHECK_MODULES([GDK_X11], [gdk-x11-3.0])
+    PKG_CHECK_MODULES([GDK_WAYLAND], [gdk-wayland-3.0])
+])
+AM_CONDITIONAL([HAVE_LIBVA], [test "x$enable_libva" = "xyes"])
+
 AC_ARG_ENABLE([usbredir],
   AS_HELP_STRING([--enable-usbredir=@<:@auto/yes/no@:>@],
                  [Enable usbredir support @<:@default=auto@:>@]),
@@ -635,6 +654,7 @@ AC_MSG_NOTICE([
         DBus:                     ${have_dbus}
         WebDAV support:           ${have_phodav}
         LZ4 support:              ${have_lz4}
+        Libva support:            ${enable_libva}
 
         Now type 'make' to build $PACKAGE
 
