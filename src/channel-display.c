@@ -175,6 +175,8 @@ static void spice_display_channel_finalize(GObject *object)
         G_OBJECT_CLASS(spice_display_channel_parent_class)->finalize(object);
 }
 
+static void spice_display_send_client_preferred_video_codecs(SpiceChannel *channel, const GArray *codecs);
+
 static void spice_display_channel_constructed(GObject *object)
 {
     SpiceDisplayChannelPrivate *c = SPICE_DISPLAY_CHANNEL(object)->priv;
@@ -572,6 +574,9 @@ static void spice_display_send_client_preferred_video_codecs(SpiceChannel *chann
     SpiceMsgOut *out;
     SpiceMsgcDisplayPreferredVideoCodecType *msg;
 
+    if (codecs == NULL || codecs->len == 0)
+        return;
+
     msg = g_malloc0(sizeof(SpiceMsgcDisplayPreferredVideoCodecType) +
                     (sizeof(SpiceVideoCodecType) * codecs->len));
     msg->num_of_codecs = codecs->len;
@@ -615,7 +620,9 @@ void spice_display_change_preferred_video_codec_type(SpiceChannel *channel, gint
  */
 void spice_display_channel_change_preferred_video_codec_type(SpiceChannel *channel, gint codec_type)
 {
+    SpiceSession *session;
     GArray *codecs;
+    const GArray *hwa_codecs;
 
     g_return_if_fail(SPICE_IS_DISPLAY_CHANNEL(channel));
     g_return_if_fail(codec_type >= SPICE_VIDEO_CODEC_TYPE_MJPEG &&
@@ -626,13 +633,23 @@ void spice_display_channel_change_preferred_video_codec_type(SpiceChannel *chann
         return;
     }
 
-    /* FIXME: We should detect video codecs that client machine can do hw
-     * decoding, store this information (as GArray) and send it to the server.
-     * This array can be rearranged to have @codec_type in the front (which is
-     * the preferred for the client side) */
-    CHANNEL_DEBUG(channel, "changing preferred video codec type to %s", gst_opts[codec_type].name);
+    session = spice_channel_get_session(channel);
+    hwa_codecs = spice_session_get_hw_accel_video_codecs(session);
+
     codecs = g_array_new(FALSE, FALSE, sizeof(gint));
     g_array_append_val(codecs, codec_type);
+    if (hwa_codecs != NULL) {
+        gint i;
+        for (i = 0; i < hwa_codecs->len; i++) {
+            gint hwa_codec_type = g_array_index(hwa_codecs, gint, i);
+            if (hwa_codec_type == codec_type)
+                continue;
+
+            g_array_append_val(codecs, hwa_codec_type);
+        }
+    }
+
+    CHANNEL_DEBUG(channel, "changing preferred video codec type to %s", gst_opts[codec_type].name);
     spice_display_send_client_preferred_video_codecs(channel, codecs);
     g_array_unref(codecs);
 }
@@ -1012,6 +1029,8 @@ static void spice_display_channel_up(SpiceChannel *channel)
     int cache_size;
     int glz_window_size;
     SpiceImageCompression preferred_compression = SPICE_IMAGE_COMPRESSION_INVALID;
+    SpiceSession *session;
+    const GArray *hwa_codecs;
 
     g_object_get(s,
                  "cache-size", &cache_size,
@@ -1034,6 +1053,10 @@ static void spice_display_channel_up(SpiceChannel *channel)
     if (preferred_compression != SPICE_IMAGE_COMPRESSION_INVALID) {
         spice_display_channel_change_preferred_compression(channel, preferred_compression);
     }
+
+    session = spice_channel_get_session(channel);
+    hwa_codecs = spice_session_get_hw_accel_video_codecs(session);
+    spice_display_send_client_preferred_video_codecs(channel, hwa_codecs);
 }
 
 #define DRAW(type) {                                                    \
