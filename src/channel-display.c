@@ -63,8 +63,7 @@ struct _SpiceDisplayChannelPrivate {
     SpicePaletteCache           palette_cache;
     SpiceImageSurfaces          image_surfaces;
     SpiceGlzDecoderWindow       *glz_window;
-    display_stream              **streams;
-    int                         nstreams;
+    GHashTable                  *streams;
     gboolean                    mark;
     guint                       mark_false_event_id;
     GArray                      *monitors;
@@ -168,7 +167,7 @@ static void spice_display_channel_finalize(GObject *object)
     g_clear_pointer(&c->monitors, g_array_unref);
     clear_surfaces(SPICE_CHANNEL(object), FALSE);
     g_hash_table_unref(c->surfaces);
-    clear_streams(SPICE_CHANNEL(object));
+    g_clear_pointer(&c->streams, g_hash_table_unref);
     g_clear_pointer(&c->palettes, cache_free);
 
     if (G_OBJECT_CLASS(spice_display_channel_parent_class)->finalize)
@@ -863,6 +862,7 @@ static void spice_display_channel_init(SpiceDisplayChannel *channel)
     c = channel->priv = SPICE_DISPLAY_CHANNEL_GET_PRIVATE(channel);
 
     c->surfaces = g_hash_table_new_full(NULL, NULL, NULL, destroy_surface);
+    c->streams = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, display_stream_destroy);
     c->image_cache.ops = &image_cache_ops;
     c->palette_cache.ops = &palette_cache_ops;
     c->image_surfaces.ops = &image_surfaces_ops;
@@ -1207,15 +1207,18 @@ static void report_invalid_stream(SpiceChannel *channel, uint32_t id)
 
 static display_stream *get_stream_by_id(SpiceChannel *channel, uint32_t id)
 {
+    display_stream *st;
     SpiceDisplayChannelPrivate *c = SPICE_DISPLAY_CHANNEL(channel)->priv;
 
-    if (c != NULL && c->streams != NULL && id < c->nstreams &&
-        c->streams[id] != NULL) {
-        return c->streams[id];
+    g_return_val_if_fail(c != NULL && c->streams != NULL, NULL);
+
+    st = g_hash_table_lookup(c->streams, GUINT_TO_POINTER(id));
+    if (st == NULL) {
+        spice_printerr("couldn't find stream %u", id);
+        report_invalid_stream(channel, id);
     }
 
-    report_invalid_stream(channel, id);
-    return NULL;
+    return st;
 }
 
 /* coroutine context */
@@ -1257,45 +1260,36 @@ static display_stream *display_stream_create(SpiceChannel *channel,
     return st;
 }
 
-static void destroy_stream(SpiceChannel *channel, int id)
+static void destroy_stream(SpiceChannel *channel, uint32_t id)
 {
     SpiceDisplayChannelPrivate *c = SPICE_DISPLAY_CHANNEL(channel)->priv;
 
     g_return_if_fail(c != NULL);
     g_return_if_fail(c->streams != NULL);
-    g_return_if_fail(c->nstreams > id);
 
-    g_clear_pointer(&c->streams[id], display_stream_destroy);
+    g_hash_table_remove(c->streams, GUINT_TO_POINTER(id));
 }
 
 static void display_handle_stream_create(SpiceChannel *channel, SpiceMsgIn *in)
 {
     SpiceDisplayChannelPrivate *c = SPICE_DISPLAY_CHANNEL(channel)->priv;
     SpiceMsgDisplayStreamCreate *op = spice_msg_in_parsed(in);
+    display_stream *st;
 
     CHANNEL_DEBUG(channel, "%s: id %u", __FUNCTION__, op->id);
+    g_return_if_fail(c->streams != NULL);
 
-    if (op->id >= c->nstreams) {
-        int n = c->nstreams;
-        if (!c->nstreams) {
-            c->nstreams = 1;
-        }
-        while (op->id >= c->nstreams) {
-            c->nstreams *= 2;
-        }
-        c->streams = realloc(c->streams, c->nstreams * sizeof(c->streams[0]));
-        memset(c->streams + n, 0, (c->nstreams - n) * sizeof(c->streams[0]));
-    }
-    g_return_if_fail(c->streams[op->id] == NULL);
-
-    c->streams[op->id] = display_stream_create(channel, op->id, op->surface_id,
-                                               op->flags, op->codec_type,
-                                               &op->dest, &op->clip);
-    if (c->streams[op->id] == NULL) {
+    st = display_stream_create(channel, op->id, op->surface_id,
+                               op->flags, op->codec_type,
+                               &op->dest, &op->clip);
+    if (st == NULL) {
         spice_printerr("could not create the %u video stream", op->id);
         destroy_stream(channel, op->id);
         report_invalid_stream(channel, op->id);
+        return;
     }
+
+    g_hash_table_insert(c->streams, GUINT_TO_POINTER(op->id), st);
 }
 
 static const SpiceRect *stream_get_dest(display_stream *st, SpiceMsgIn *frame_msg)
@@ -1470,18 +1464,21 @@ static void display_session_mm_time_reset_cb(SpiceSession *session, gpointer dat
 {
     SpiceChannel *channel = data;
     SpiceDisplayChannelPrivate *c = SPICE_DISPLAY_CHANNEL(channel)->priv;
-    guint i;
+    GHashTableIter iter;
+    gpointer key, value;
 
     CHANNEL_DEBUG(channel, "%s", __FUNCTION__);
 
-    for (i = 0; i < c->nstreams; i++) {
-        display_stream *st;
+    g_hash_table_iter_init (&iter, c->streams);
+    while (g_hash_table_iter_next (&iter, &key, &value)) {
+        display_stream *st = value;
 
-        if (c->streams[i] == NULL) {
+        if (st == NULL) {
+            g_warn_if_reached();
             continue;
         }
-        SPICE_DEBUG("%s: stream-id %u", __FUNCTION__, i);
-        st = c->streams[i];
+
+        SPICE_DEBUG("%s: stream-id %u", __FUNCTION__, GPOINTER_TO_UINT(key));
         st->video_decoder->reschedule(st->video_decoder);
     }
 }
@@ -1626,13 +1623,7 @@ static void display_stream_destroy(gpointer st_pointer)
 static void clear_streams(SpiceChannel *channel)
 {
     SpiceDisplayChannelPrivate *c = SPICE_DISPLAY_CHANNEL(channel)->priv;
-    int i;
-
-    for (i = 0; i < c->nstreams; i++) {
-        destroy_stream(channel, i);
-    }
-    g_clear_pointer(&c->streams, g_free);
-    c->nstreams = 0;
+    g_hash_table_remove_all(c->streams);
 }
 
 /* coroutine context */
