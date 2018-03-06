@@ -196,6 +196,7 @@ void stream_dropped_frame_on_playback(display_stream *st);
 #define SPICE_UNKNOWN_STRIDE 0
 void stream_display_frame(display_stream *st, SpiceFrame *frame, uint32_t width, uint32_t height, int stride, uint8_t* data);
 
+void spice_frame_free(SpiceFrame *frame);
 
 G_END_DECLS
 

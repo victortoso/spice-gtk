@@ -91,10 +91,8 @@ static SpiceGstFrame *create_gst_frame(GstBuffer *buffer, SpiceFrame *frame)
 
 static void free_gst_frame(SpiceGstFrame *gstframe)
 {
-    gstframe->frame->free(gstframe->frame);
-    if (gstframe->sample) {
-        gst_sample_unref(gstframe->sample);
-    }
+    g_clear_pointer(&gstframe->frame, spice_frame_free);
+    g_clear_pointer(&gstframe->sample, gst_sample_unref);
     g_free(gstframe);
 }
 
@@ -600,7 +598,7 @@ static gboolean spice_gst_decoder_queue_frame(VideoDecoder *video_decoder,
     frame->ref_data(frame->data_opaque);
     GstBuffer *buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,
                                                     frame->data, frame->size, 0, frame->size,
-                                                    frame->data_opaque, frame->unref_data);
+                                                    frame->data_opaque, NULL);
 
     GST_BUFFER_DURATION(buffer) = GST_CLOCK_TIME_NONE;
     GST_BUFFER_DTS(buffer) = GST_CLOCK_TIME_NONE;

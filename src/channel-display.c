@@ -1539,6 +1539,17 @@ static void display_session_mm_time_reset_cb(SpiceSession *session, gpointer dat
 
 #define STREAM_PLAYBACK_SYNC_DROP_SEQ_LEN_LIMIT 5
 
+G_GNUC_INTERNAL
+void spice_frame_free(SpiceFrame *frame)
+{
+    if (frame == NULL) {
+        return;
+    }
+
+    frame->unref_data(frame->data_opaque);
+    frame->free(frame);
+}
+
 /* coroutine context */
 static void display_handle_stream_data(SpiceChannel *channel, SpiceMsgIn *in)
 {
