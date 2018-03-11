@@ -70,6 +70,7 @@ struct _SpiceDisplayChannelPrivate {
     GArray                      *monitors;
     guint                       monitors_max;
     gboolean                    enable_adaptive_streaming;
+    guintptr                    handle;
     SpiceGlScanout scanout;
 };
 
@@ -83,6 +84,7 @@ enum {
     PROP_MONITORS,
     PROP_MONITORS_MAX,
     PROP_GL_SCANOUT,
+    PROP_HANDLE,
 };
 
 enum {
@@ -91,6 +93,7 @@ enum {
     SPICE_DISPLAY_INVALIDATE,
     SPICE_DISPLAY_MARK,
     SPICE_DISPLAY_GL_DRAW,
+    SPICE_DISPLAY_STREAM_AREA,
 
     SPICE_DISPLAY_LAST_SIGNAL,
 };
@@ -227,6 +230,10 @@ static void spice_display_get_property(GObject    *object,
         g_value_set_static_boxed(value, spice_display_channel_get_gl_scanout(channel));
         break;
     }
+    case PROP_HANDLE: {
+        g_value_set_ulong(value, c->handle);
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
         break;
@@ -238,7 +245,14 @@ static void spice_display_set_property(GObject      *object,
                                        const GValue *value,
                                        GParamSpec   *pspec)
 {
+    SpiceDisplayChannel *channel = SPICE_DISPLAY_CHANNEL(object);
+    SpiceDisplayChannelPrivate *c = channel->priv;
+
     switch (prop_id) {
+    case PROP_HANDLE: {
+         c->handle = g_value_get_ulong(value);
+         break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
         break;
@@ -335,6 +349,16 @@ static void spice_display_channel_class_init(SpiceDisplayChannelClass *klass)
                             "GL scanout",
                             "GL scanout",
                             SPICE_TYPE_GL_SCANOUT,
+                            G_PARAM_READABLE |
+                            G_PARAM_STATIC_STRINGS));
+
+    g_object_class_install_property
+         (gobject_class, PROP_HANDLE,
+         g_param_spec_ulong("handle",
+                            "Display handle",
+                            "Display handle",
+                            0, G_MAXULONG, 0,
+                            G_PARAM_WRITABLE |
                             G_PARAM_READABLE |
                             G_PARAM_STATIC_STRINGS));
 
@@ -447,6 +471,27 @@ static void spice_display_channel_class_init(SpiceDisplayChannelClass *klass)
      **/
     signals[SPICE_DISPLAY_GL_DRAW] =
         g_signal_new("gl-draw",
+                     G_OBJECT_CLASS_TYPE(gobject_class),
+                     0, 0, NULL, NULL,
+                     g_cclosure_user_marshal_VOID__UINT_UINT_UINT_UINT,
+                     G_TYPE_NONE,
+                     4,
+                     G_TYPE_UINT, G_TYPE_UINT, G_TYPE_UINT, G_TYPE_UINT);
+
+    /**
+     * SpiceDisplayChannel::stream-area:
+     * @display: the #SpiceDisplayChannel that emitted the signal
+     * @x: x position
+     * @y: y position
+     * @width: width
+     * @height: height
+     *
+     * The #SpiceDisplayChannel::stream-area signal is emitted when
+     * the rectangular region x/y/w/h is known as an area of a
+     * video stream to be received.
+     **/
+    signals[SPICE_DISPLAY_STREAM_AREA] =
+        g_signal_new("stream-area",
                      G_OBJECT_CLASS_TYPE(gobject_class),
                      0, 0, NULL, NULL,
                      g_cclosure_user_marshal_VOID__UINT_UINT_UINT_UINT,
@@ -1246,6 +1291,15 @@ static display_stream *display_stream_create(SpiceChannel *channel,
 #endif
     default:
 #ifdef HAVE_GSTVIDEO
+        if (c->primary->width == (dest->right - dest->left) &&
+            c->primary->height == (dest->bottom - dest->top)) {
+            SPICE_DEBUG("It seems to be a FULL-SCREEN stream");
+            /* stream area location is sent but currently not used */
+            g_coroutine_signal_emit(channel, signals[SPICE_DISPLAY_STREAM_AREA], 0,
+                                    dest->left, dest->top,
+                                    c->primary->width, c->primary->height);
+        //TODO: may not finished before creating decoder? also there is no fallback, assuming success
+        }
         st->video_decoder = create_gstreamer_decoder(codec_type, st);
 #endif
         break;

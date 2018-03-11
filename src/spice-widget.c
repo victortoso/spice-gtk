@@ -613,6 +613,29 @@ G_GNUC_END_IGNORE_DEPRECATIONS
 #endif
 
 static void
+gst_area_realize(GtkGLArea *area, gpointer user_data)
+{
+//TODO: needs rework, currently works only under X
+#ifdef GDK_WINDOWING_X11
+    SpiceDisplay *display = SPICE_DISPLAY(user_data);
+    SpiceDisplayPrivate *d = display->priv;
+    GdkWindow *window = gtk_widget_get_window(GTK_WIDGET(display));
+
+    if (window) {
+#if GTK_CHECK_VERSION(2,18,0)
+        if (!gdk_window_ensure_native (window)) {
+            g_warning("Couldn't create native window needed for GstVideoOverlay!");
+            return;
+        }
+#endif
+        g_object_set(G_OBJECT (d->display),
+                    "handle", GDK_WINDOW_XID(window),
+                    NULL);
+    }
+#endif
+}
+
+static void
 drawing_area_realize(GtkWidget *area, gpointer user_data)
 {
 #if defined(GDK_WINDOWING_X11) && defined(HAVE_EGL)
@@ -660,6 +683,13 @@ G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 G_GNUC_END_IGNORE_DEPRECATIONS
 #endif
 #endif
+
+    area = gtk_drawing_area_new();
+    g_object_connect(area,
+                     "signal::realize", gst_area_realize, display,
+                     NULL);
+    gtk_stack_add_named(d->stack, area, "gst-area");
+
     gtk_widget_show_all(widget);
 
     g_signal_connect(display, "grab-broken-event", G_CALLBACK(grab_broken), NULL);
@@ -2589,6 +2619,20 @@ static void queue_draw_area(SpiceDisplay *display, gint x, gint y,
                                x, y, width, height);
 }
 
+static void pop_stream_area(SpiceChannel *channel, guint x, guint y,
+                            guint width, guint height, gpointer data)
+{
+/* Currently it works only in X11 environment - do not set area visible if it's not X11 */
+#ifdef GDK_WINDOWING_X11
+    SpiceDisplay *display = data;
+    SpiceDisplayPrivate *d = display->priv;
+
+    if (GDK_IS_X11_DISPLAY(gdk_display_get_default())) {
+        gtk_stack_set_visible_child_name(d->stack, "gst-area");
+    }
+#endif
+}
+
 static void invalidate(SpiceChannel *channel,
                        gint x, gint y, gint w, gint h, gpointer data)
 {
@@ -2957,6 +3001,8 @@ static void channel_new(SpiceSession *s, SpiceChannel *channel, gpointer data)
         spice_g_signal_connect_object(channel, "notify::monitors",
                                       G_CALLBACK(spice_display_widget_update_monitor_area),
                                       display, G_CONNECT_AFTER | G_CONNECT_SWAPPED);
+        spice_g_signal_connect_object(channel, "stream-area",
+                                      G_CALLBACK(pop_stream_area), display, 0);
         if (spice_display_channel_get_primary(channel, 0, &primary)) {
             primary_create(channel, primary.format, primary.width, primary.height,
                            primary.stride, primary.shmid, primary.data, display);

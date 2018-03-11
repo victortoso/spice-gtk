@@ -265,7 +265,8 @@ static void free_pipeline(SpiceGstDecoder *decoder)
 
     gst_element_set_state(decoder->pipeline, GST_STATE_NULL);
     gst_object_unref(decoder->appsrc);
-    gst_object_unref(decoder->appsink);
+    if (decoder->appsink)
+        gst_object_unref(decoder->appsink);
     gst_object_unref(decoder->pipeline);
     gst_object_unref(decoder->clock);
     decoder->pipeline = NULL;
@@ -307,7 +308,18 @@ static gboolean handle_pipeline_message(GstBus *bus, GstMessage *msg, gpointer v
         break;
     }
     default:
-        /* not being handled */
+        if (gst_is_video_overlay_prepare_window_handle_message(msg)) {
+            GstVideoOverlay *overlay;
+            guintptr handle = 0;
+
+            g_object_get(decoder->base.stream->channel, "handle", &handle, NULL);
+            SPICE_DEBUG("prepare-window-handle msg received (handle: %lu)", handle);
+            if (handle != 0) {
+                overlay = GST_VIDEO_OVERLAY(GST_MESSAGE_SRC(msg));
+                gst_video_overlay_set_window_handle(overlay, handle);
+            }
+        }
+        /* else- not being handled */
         break;
     }
     return TRUE;
@@ -347,6 +359,7 @@ static gboolean create_pipeline(SpiceGstDecoder *decoder)
 #if GST_CHECK_VERSION(1,9,0)
     GstElement *playbin, *sink;
     SpiceGstPlayFlags flags;
+    guintptr handle;
     GstCaps *caps;
 
     playbin = gst_element_factory_make("playbin", "playbin");
@@ -355,26 +368,53 @@ static gboolean create_pipeline(SpiceGstDecoder *decoder)
         return FALSE;
     }
 
-    sink = gst_element_factory_make("appsink", "sink");
-    if (sink == NULL) {
-        spice_warning("error upon creation of 'appsink' element");
-        gst_object_unref(playbin);
-        return FALSE;
-    }
-
-    caps = gst_caps_from_string("video/x-raw,format=BGRx");
-    g_object_set(sink,
+    g_object_get(decoder->base.stream->channel, "handle", &handle, NULL);
+    SPICE_DEBUG("Creating Gstreamer pipline (handle for overlay %s)\n",
+                handle ? "received" : "not received");
+    if (handle == 0) {
+        sink = gst_element_factory_make("appsink", "sink");
+        if (sink == NULL) {
+            spice_warning("error upon creation of 'appsink' element");
+            gst_object_unref(playbin);
+            return FALSE;
+        }
+        caps = gst_caps_from_string("video/x-raw,format=BGRx");
+        g_object_set(sink,
                  "caps", caps,
                  "sync", FALSE,
                  "drop", FALSE,
                  NULL);
-    gst_caps_unref(caps);
+        gst_caps_unref(caps);
+        g_object_set(playbin,
+                 "video-sink", gst_object_ref(sink),
+                 NULL);
+
+        decoder->appsink = GST_APP_SINK(sink);
+    } else {
+     /*
+      * handle has received, it means playbin will render directly into
+      * widget using the gstoverlay interface instead of app-sink.
+      * Also avoid using vaapisink if exist since vaapisink could be
+      * buggy when it is combined with playbin. changing its rank to
+      * none will make playbin to avoid of using it.
+      */
+        GstRegistry *registry = NULL;
+        GstPluginFeature *vaapisink = NULL;
+
+        registry = gst_registry_get ();
+        if (registry) {
+            vaapisink = gst_registry_lookup_feature(registry, "vaapisink");
+        }
+        if (vaapisink) {
+            gst_plugin_feature_set_rank(vaapisink, GST_RANK_NONE);
+            gst_object_unref(vaapisink);
+        }
+    }
 
     g_signal_connect(playbin, "source-setup", G_CALLBACK(app_source_setup), decoder);
 
     g_object_set(playbin,
                  "uri", "appsrc://",
-                 "video-sink", gst_object_ref(sink),
                  NULL);
 
     /* Disable audio in playbin */
@@ -383,7 +423,6 @@ static gboolean create_pipeline(SpiceGstDecoder *decoder)
     g_object_set(playbin, "flags", flags, NULL);
 
     g_warn_if_fail(decoder->appsrc == NULL);
-    decoder->appsink = GST_APP_SINK(sink);
     decoder->pipeline = playbin;
 #else
     gchar *desc;
@@ -416,7 +455,9 @@ static gboolean create_pipeline(SpiceGstDecoder *decoder)
 #endif
 
     appsink_cbs.new_sample = new_sample;
-    gst_app_sink_set_callbacks(decoder->appsink, &appsink_cbs, decoder, NULL);
+    if (decoder->appsink) {
+        gst_app_sink_set_callbacks(decoder->appsink, &appsink_cbs, decoder, NULL);
+    }
     bus = gst_pipeline_get_bus(GST_PIPELINE(decoder->pipeline));
     gst_bus_add_watch(bus, handle_pipeline_message, decoder);
     gst_object_unref(bus);
