@@ -207,6 +207,7 @@ static GstFlowReturn new_sample(GstAppSink *gstappsink, gpointer video_decoder)
     GstSample *sample = gst_app_sink_pull_sample(decoder->appsink);
     if (sample) {
         GstBuffer *buffer = gst_sample_get_buffer(sample);
+        guint num_frames_dropped = 0;
         g_mutex_lock(&decoder->queues_mutex);
 
         /* gst_app_sink_pull_sample() sometimes returns the same buffer twice
@@ -235,12 +236,15 @@ static GstFlowReturn new_sample(GstAppSink *gstappsink, gpointer video_decoder)
                     /* The GStreamer pipeline dropped the corresponding
                      * buffer.
                      */
-                    SPICE_DEBUG("the GStreamer pipeline dropped a frame");
+                    num_frames_dropped++;
                     free_gst_frame(gstframe);
                 }
                 break;
             }
             l = l->next;
+        }
+        if (num_frames_dropped != 0) {
+            SPICE_DEBUG("the GStreamer pipeline dropped %u frames", num_frames_dropped);
         }
         if (!l) {
             spice_warning("got an unexpected decoded buffer!");
