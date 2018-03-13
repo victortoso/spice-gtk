@@ -1595,6 +1595,36 @@ static void display_stream_stats_debug(display_stream *st)
     }
 }
 
+#define USEC_TO_MSEC(time) ((double) time * 1000 / G_USEC_PER_SEC)
+static void display_stream_stats_frame(display_stream *st,
+                                       SpiceFrame *frame)
+{
+    gint64 lifespan, min_lifespan, max_lifespan;
+    gdouble avg_lifespan;
+
+    if (!spice_util_get_debug()) {
+        return;
+    }
+
+    lifespan = g_get_monotonic_time() - frame->creation_time;
+    min_lifespan = MIN(lifespan, st->frame_lifespan_min);
+    max_lifespan = MIN(lifespan, st->frame_lifespan_max);
+    avg_lifespan = (st->frame_lifespan_avg * st->num_input_frames + lifespan) /
+                          ((double) (st->num_input_frames + 1));
+
+    if (min_lifespan != st->frame_lifespan_min ||
+        max_lifespan != st->frame_lifespan_max ||
+        avg_lifespan < 0.90 * st->frame_lifespan_avg ||
+        avg_lifespan > 1.10 * st->frame_lifespan_avg) {
+        CHANNEL_DEBUG(st->channel,
+                      "frame lifespan: %0.2f | (%0.2f , %0.2f , %0.2f)",
+                      USEC_TO_MSEC(lifespan), USEC_TO_MSEC(min_lifespan),
+                      USEC_TO_MSEC(avg_lifespan), USEC_TO_MSEC(max_lifespan));
+        st->frame_lifespan_min = min_lifespan;
+        st->frame_lifespan_max = max_lifespan;
+    }
+    st->frame_lifespan_avg = avg_lifespan;
+}
 
 static void display_stream_stats_save(display_stream *st,
                                       guint32 server_mmtime,
@@ -1666,6 +1696,8 @@ static SpiceFrame *spice_frame_new(display_stream *st,
     frame->ref_data = (void*)spice_msg_in_ref;
     frame->unref_data = (void*)spice_msg_in_unref;
     frame->free = (void*)g_free;
+    frame->display_stream = st;
+    frame->creation_time = g_get_monotonic_time();
     return frame;
 }
 
@@ -1676,6 +1708,7 @@ void spice_frame_free(SpiceFrame *frame)
         return;
     }
 
+    display_stream_stats_frame(frame->display_stream, frame);
     frame->unref_data(frame->data_opaque);
     frame->free(frame);
 }

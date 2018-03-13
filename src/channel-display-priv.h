@@ -40,6 +40,7 @@ typedef struct SpiceFrame SpiceFrame;
 struct SpiceFrame {
     uint32_t mm_time;
     SpiceRect dest;
+    display_stream *display_stream;
 
     uint8_t *data;
     uint32_t size;
@@ -48,6 +49,9 @@ struct SpiceFrame {
     void (*unref_data)(gpointer data_opaque);
 
     void (*free)(SpiceFrame *frame);
+
+    /* stats */
+    gint64 creation_time;
 };
 
 typedef struct VideoDecoder VideoDecoder;
