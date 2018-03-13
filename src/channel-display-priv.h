@@ -136,6 +136,12 @@ struct display_stream {
     drops_sequence_stats cur_drops_seq_stats;
     GArray               *drops_seqs_stats_arr;
     uint32_t             num_drops_seqs;
+    uint32_t             latency_min;
+    uint32_t             latency_max;
+    gdouble              latency_avg;
+    uint32_t             frame_lifespan_min;
+    uint32_t             frame_lifespan_max;
+    gdouble              frame_lifespan_avg;
 
     uint32_t             playback_sync_drops_seq_len;
 

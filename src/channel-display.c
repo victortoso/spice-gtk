@@ -1601,6 +1601,10 @@ static void display_stream_stats_save(display_stream *st,
                                       guint32 client_mmtime)
 {
     gint32 latency = server_mmtime - client_mmtime;
+    gint32 min_latency = st->latency_min == 0 ? latency : MIN(st->latency_min, latency);
+    gint32 max_latency = MAX(st->latency_max, latency);
+    gdouble avg_latency = (st->latency_avg * st->num_input_frames + latency) /
+                          ((double) (st->num_input_frames + 1));
 
     if (!st->num_input_frames) {
         st->first_frame_mm_time = server_mmtime;
@@ -1621,7 +1625,19 @@ static void display_stream_stats_save(display_stream *st,
         return;
     }
 
-    CHANNEL_DEBUG(st->channel, "video latency: %d", latency);
+    /* Only debug latency value if it matters otherwise it can be too verbose */
+    if (min_latency != st->latency_min ||
+        max_latency != st->latency_max ||
+        avg_latency < 0.90 * st->latency_avg ||
+        avg_latency > 1.10 * st->latency_avg) {
+        CHANNEL_DEBUG(st->channel,
+                      "video latency: %d | (%d , %0.2f , %d)",
+                      latency, min_latency, avg_latency, max_latency);
+        st->latency_min = min_latency;
+        st->latency_max = max_latency;
+    }
+    st->latency_avg = avg_latency;
+
     if (st->cur_drops_seq_stats.len) {
         st->cur_drops_seq_stats.duration = server_mmtime -
                                            st->cur_drops_seq_stats.start_mm_time;
