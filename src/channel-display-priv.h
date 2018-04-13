@@ -52,6 +52,8 @@ struct SpiceFrame {
 
     /* stats */
     gint64 creation_time;
+    gint64 decoded_time;
+    gint64 rendered_time;
 };
 
 typedef struct VideoDecoder VideoDecoder;
@@ -146,6 +148,12 @@ struct display_stream {
     uint32_t             frame_lifespan_min;
     uint32_t             frame_lifespan_max;
     gdouble              frame_lifespan_avg;
+    uint32_t             frame_decoded_min;
+    uint32_t             frame_decoded_max;
+    gdouble              frame_decoded_avg;
+    uint32_t             frame_rendered_min;
+    uint32_t             frame_rendered_max;
+    gdouble              frame_rendered_avg;
 
     uint32_t             playback_sync_drops_seq_len;
 

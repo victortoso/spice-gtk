@@ -203,6 +203,7 @@ static void schedule_frame(SpiceGstDecoder *decoder)
 static GstFlowReturn new_sample(GstAppSink *gstappsink, gpointer video_decoder)
 {
     SpiceGstDecoder *decoder = video_decoder;
+    guint64 now = g_get_monotonic_time();
 
     GstSample *sample = gst_app_sink_pull_sample(decoder->appsink);
     if (sample) {
@@ -224,6 +225,7 @@ static GstFlowReturn new_sample(GstAppSink *gstappsink, gpointer video_decoder)
             if (gstframe->timestamp == GST_BUFFER_PTS(buffer)) {
                 /* The frame is now ready for display */
                 gstframe->sample = sample;
+                gstframe->frame->decoded_time = now;
                 g_queue_push_tail(decoder->display_queue, gstframe);
 
                 /* Now that we know there is a match, remove it and the older

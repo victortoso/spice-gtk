@@ -1405,6 +1405,7 @@ void stream_display_frame(display_stream *st, SpiceFrame *frame,
         stride = -stride;
     }
 
+    frame->rendered_time = g_get_monotonic_time();
     st->surface->canvas->ops->put_image(st->surface->canvas,
                                         &frame->dest, data,
                                         width, height, stride,
@@ -1600,7 +1601,9 @@ static void display_stream_stats_frame(display_stream *st,
                                        SpiceFrame *frame)
 {
     gint64 lifespan, min_lifespan, max_lifespan;
-    gdouble avg_lifespan;
+    gint64 decoded, min_decoded, max_decoded;
+    gint64 rendered, min_rendered, max_rendered;
+    gdouble avg_lifespan, avg_decoded, avg_rendered;
 
     if (!spice_util_get_debug()) {
         return;
@@ -1608,18 +1611,40 @@ static void display_stream_stats_frame(display_stream *st,
 
     lifespan = g_get_monotonic_time() - frame->creation_time;
     min_lifespan = MIN(lifespan, st->frame_lifespan_min);
-    max_lifespan = MIN(lifespan, st->frame_lifespan_max);
+    max_lifespan = MAX(lifespan, st->frame_lifespan_max);
     avg_lifespan = (st->frame_lifespan_avg * st->num_input_frames + lifespan) /
+                          ((double) (st->num_input_frames + 1));
+
+    decoded = frame->decoded_time - frame->creation_time;
+    min_decoded = MIN(decoded, st->frame_decoded_min);
+    max_decoded = MAX(decoded, st->frame_decoded_max);
+    avg_decoded = (st->frame_decoded_avg * st->num_input_frames + lifespan) /
+                          ((double) (st->num_input_frames + 1));
+
+    rendered = frame->rendered_time - frame->decoded_time;
+    min_rendered = MIN(rendered, st->frame_rendered_min);
+    max_rendered = MAX(rendered, st->frame_rendered_max);
+    avg_rendered = (st->frame_rendered_avg * st->num_input_frames + lifespan) /
                           ((double) (st->num_input_frames + 1));
 
     if (min_lifespan != st->frame_lifespan_min ||
         max_lifespan != st->frame_lifespan_max ||
+        min_decoded != st->frame_decoded_min ||
+        max_decoded != st->frame_decoded_max ||
+        min_rendered != st->frame_rendered_min ||
+        max_rendered != st->frame_rendered_max ||
+        avg_decoded < 0.90 * st->frame_decoded_avg ||
+        avg_decoded > 1.10 * st->frame_decoded_avg ||
+        avg_rendered < 0.90 * st->frame_rendered_avg ||
+        avg_rendered > 1.10 * st->frame_rendered_avg ||
         avg_lifespan < 0.90 * st->frame_lifespan_avg ||
         avg_lifespan > 1.10 * st->frame_lifespan_avg) {
         CHANNEL_DEBUG(st->channel,
-                      "frame lifespan: %0.2f | (%0.2f , %0.2f , %0.2f)",
-                      USEC_TO_MSEC(lifespan), USEC_TO_MSEC(min_lifespan),
-                      USEC_TO_MSEC(avg_lifespan), USEC_TO_MSEC(max_lifespan));
+                      "Frame: %u, %0.2f ms to decode, %0.2f ms to render, %0.2f alive in average",
+                      st->num_input_frames,
+                      USEC_TO_MSEC(avg_decoded),
+                      USEC_TO_MSEC(avg_rendered),
+                      USEC_TO_MSEC(avg_lifespan));
         st->frame_lifespan_min = min_lifespan;
         st->frame_lifespan_max = max_lifespan;
     }
