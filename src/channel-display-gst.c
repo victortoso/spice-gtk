@@ -239,6 +239,7 @@ static GstFlowReturn new_sample(GstAppSink *gstappsink, gpointer video_decoder)
                      * buffer.
                      */
                     num_frames_dropped++;
+                    gstframe->frame->dropped = true;
                     free_gst_frame(gstframe);
                 }
                 break;

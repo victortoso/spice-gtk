@@ -1605,9 +1605,18 @@ static void display_stream_stats_frame(display_stream *st,
     gint64 rendered, min_rendered, max_rendered;
     gdouble avg_lifespan, avg_decoded, avg_rendered;
 
-    if (!spice_util_get_debug()) {
+    if (!spice_util_get_debug() || frame->dropped) {
         return;
     }
+#if 0
+    CHANNEL_DEBUG(st->channel, "\n"
+                  "creation: %ld\n"
+                  "decoded : %ld\n"
+                  "rendered: %ld",
+                  frame->creation_time,
+                  frame->decoded_time,
+                  frame->rendered_time);
+#endif
 
     lifespan = g_get_monotonic_time() - frame->creation_time;
     min_lifespan = MIN(lifespan, st->frame_lifespan_min);
@@ -1618,14 +1627,22 @@ static void display_stream_stats_frame(display_stream *st,
     decoded = frame->decoded_time - frame->creation_time;
     min_decoded = MIN(decoded, st->frame_decoded_min);
     max_decoded = MAX(decoded, st->frame_decoded_max);
-    avg_decoded = (st->frame_decoded_avg * st->num_input_frames + lifespan) /
+    avg_decoded = (st->frame_decoded_avg * st->num_input_frames + decoded) /
                           ((double) (st->num_input_frames + 1));
 
     rendered = frame->rendered_time - frame->decoded_time;
     min_rendered = MIN(rendered, st->frame_rendered_min);
     max_rendered = MAX(rendered, st->frame_rendered_max);
-    avg_rendered = (st->frame_rendered_avg * st->num_input_frames + lifespan) /
+    avg_rendered = (st->frame_rendered_avg * st->num_input_frames + rendered) /
                           ((double) (st->num_input_frames + 1));
+
+#if 0
+    CHANNEL_DEBUG(st->channel, "\n"
+                  "lifespan: %ld\n"
+                  "decoded : %ld\n"
+                  "rendered: %ld",
+                  lifespan, decoded, rendered);
+#endif
 
     if (min_lifespan != st->frame_lifespan_min ||
         max_lifespan != st->frame_lifespan_max ||
@@ -1647,8 +1664,14 @@ static void display_stream_stats_frame(display_stream *st,
                       USEC_TO_MSEC(avg_lifespan));
         st->frame_lifespan_min = min_lifespan;
         st->frame_lifespan_max = max_lifespan;
+        st->frame_decoded_min = min_decoded;
+        st->frame_decoded_max = max_decoded;
+        st->frame_rendered_min = min_rendered;
+        st->frame_rendered_max = max_rendered;
     }
     st->frame_lifespan_avg = avg_lifespan;
+    st->frame_decoded_avg = avg_decoded;
+    st->frame_rendered_avg = avg_rendered;
 }
 
 static void display_stream_stats_save(display_stream *st,
@@ -1713,6 +1736,7 @@ static SpiceFrame *spice_frame_new(display_stream *st,
     guint32 data_size = spice_msg_in_frame_data(in, &data_ptr);
 
     frame = g_new(SpiceFrame, 1);
+    frame->dropped = false;
     frame->mm_time = server_mmtime;
     frame->dest = *dest_rect;
     frame->data = data_ptr;

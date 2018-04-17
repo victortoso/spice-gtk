@@ -51,6 +51,7 @@ struct SpiceFrame {
     void (*free)(SpiceFrame *frame);
 
     /* stats */
+    bool   dropped;
     gint64 creation_time;
     gint64 decoded_time;
     gint64 rendered_time;
